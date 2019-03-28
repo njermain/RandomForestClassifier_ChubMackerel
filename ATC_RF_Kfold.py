@@ -13,14 +13,14 @@ import seaborn as sns
 df=pd.read_csv("C:/Users/w10007346/Dropbox/ATC shape analsis project (1)/ACM_ShapeAnalysis/Analysis/wave_shape.csv")
 
 df.head()
+orig_resp=df['pop']
 
 ####### Data Cleaning ###########
-
 
 df.columns.values
 len(df.columns.values)
 
-#### transforming skewed features
+#### Transforming skewed features
 # check features for skew
 skew_feats=df.drop('pop', axis=1).skew().sort_values(ascending=False)
 skewness=pd.DataFrame({'Skew':skew_feats})
@@ -35,9 +35,9 @@ for i in skewed_features:
     df[i]=boxcox1p(df[i],lam)
 
 # check
-df.skew().sort_values(ascending=False)
-# improved
+df.skew().sort_values(ascending=False)# improved
 
+##### Remove duplicate features and NAs
 # remove id column
 df=df.drop('Unnamed: 0', axis=1)
 # response is population
@@ -45,9 +45,6 @@ resp=df['pop']
 df=df.drop('pop', axis=1)
 
 df.columns.values
-
-# plot response variable
-resp.value_counts().plot('bar')
 
 
 # fill in missing values
@@ -81,13 +78,24 @@ resp=resp[0]
 from sklearn.model_selection import train_test_split
 train_X, test_X, train_y, test_y = train_test_split(df, resp, random_state = 0, test_size=.2)
 
+len(df.columns.values)
 
+########### Undersampling of common classes 
+pd.Series(train_y).value_counts().plot('bar') # unbalanced design
 
-############# Modeling #################
+from imblearn.under_sampling import RandomUnderSampler
+
+rus = RandomUnderSampler(return_indices=True)
+X_rus, y_rus, id_rus = rus.fit_sample(train_X, train_y)
+
+pd.Series(y_rus).value_counts().plot('bar') # equal sampling now (check)
+
+############# Modeling ############################
 from sklearn.ensemble import RandomForestClassifier
 
 # the model prior to hyperparameter optimization
 RFC=RandomForestClassifier(n_estimators=4000)
+
 
 #### use grid search to identify the best hyperparameters using Kfold CV
 # max number of features to consider at every split
@@ -115,39 +123,58 @@ grid_param = {'max_features': max_features,
 from sklearn.model_selection import GridSearchCV
 gd_sr = GridSearchCV(estimator=RFC, param_grid=grid_param, scoring='accuracy', cv=5,n_jobs=-1)
 
-gd_sr.fit(train_X, train_y)  
+# are the optimal hyperparameters different for the undersampled training dataset?
+gd_sr.fit(X_rus, y_rus) 
 print(gd_sr.best_params_)
-# {'bootstrap': False, 'criterion': 'gini', 'max_depth': 20, 
+# {'bootstrap': True, 'criterion': 'gini', 'max_depth': 20, 
 # 'max_features': 'auto', 'min_samples_leaf': 1, 'min_samples_split': 5}
 
-# update model with optimal hyperparameter values
 Best_RFC=RandomForestClassifier(n_estimators=8000, max_features='auto', max_depth=20,
                            min_samples_split=5, min_samples_leaf=1,
-                           bootstrap=False, criterion='gini')
+                           bootstrap=True, criterion='gini')
 
-# fit best model to training dataset
-Best_RFC.fit(train_X, train_y)
+Best_RFC.fit(X_rus, y_rus)
 
 # predict test Y values
 ypred=Best_RFC.predict(test_X)
 
 # apply to test set
-
 from sklearn import metrics
-
 print("Accuracy:",metrics.accuracy_score(test_y, ypred))
-
 
 # confusion matrix to evaluate predictions
 pd.crosstab(test_y, ypred, rownames=['Observed'], colnames=['Predicted'])
 
 
+######## Oversampling of rare classes  ######################
+# plot response variable
+pd.Series(train_y).value_counts().plot('bar') # unbalanced design
+
+# lets try oversampling too
+from imblearn.over_sampling import RandomOverSampler
+ros=RandomOverSampler()
+X_ros, y_ros = ros.fit_sample(train_X, train_y)
+
+pd.Series(y_ros).value_counts().plot('bar') # equal sampling now (check)
+
+# update model with optimal hyperparameter values
+Best_RFC=RandomForestClassifier(n_estimators=8000, max_features='auto', max_depth=20,
+                           min_samples_split=5, min_samples_leaf=1,
+                           bootstrap=True, criterion='gini')
+
+# fit best model to training dataset
+Best_RFC.fit(X_ros, y_ros)
+
+# predict test Y values
+ypred=Best_RFC.predict(test_X)
+
+# apply to test set
+from sklearn import metrics
+print("Accuracy:",metrics.accuracy_score(test_y, ypred))
 
 
-
-
-
-
+# confusion matrix to evaluate predictions
+pd.crosstab(test_y, ypred, rownames=['Observed'], colnames=['Predicted'])
 
 
 
